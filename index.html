@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>VoltaNorma · Selector de subestaciones</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;700&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>VoltaNorma</h1>
+    <p>Dos herramientas: un selector de subestaciones según las normas ESSA, el RETIE y la NTC 2050, y el cálculo de flecha y tensión de un conductor.</p>
+    <nav class="tabs"><button data-tab="trafo" class="on">Transformadores</button><button data-tab="vano">Vano y flecha</button></nav>
+    <details class="card" id="inf" style="margin-top:.9rem"><summary>Informe imprimible</summary>
+      <div class="inf-grid">
+        <label>Nombre<input type="text" id="inf-n" autocomplete="name"></label>
+        <label>Institución<input type="text" id="inf-i"></label>
+        <label class="chk"><input type="checkbox" id="inf-m-on">Incluir materia</label>
+        <label>Materia<input type="text" id="inf-m" disabled></label>
+      </div>
+      <button type="button" class="btn" id="inf-b">Descargar informe (imprimir o guardar PDF)</button>
+    </details>
+  </header>
+  <div class="pane" id="p-trafo">
+  <aside class="card"><form id="form" onsubmit="return false"></form></aside>
+  <main style="display:grid;gap:1.2rem;min-width:0">
+    <section class="card kpis" id="kpis"></section>
+    <div id="alert"></div>
+    <section class="hyp" id="hyp"></section>
+    <section class="card scheme" id="scheme"></section>
+    <section class="card"><h2 style="font-size:1.2rem">Asesor normativo</h2><div class="tips" id="tips" style="margin-top:.8rem"></div></section>
+    <footer>Base: ESSA NTT‑01, NTT‑02 y NTT‑03 (v01, 2021). Es una ayuda académica: verifique siempre la versión vigente del RETIE y de las NTC.</footer>
+  </main>
+  </div>
+  <div class="pane" id="p-vano" hidden>
+    <aside class="card"><div class="chips" id="vpre"></div><form id="vform" onsubmit="return false"></form></aside>
+    <main style="display:grid;gap:1.2rem;min-width:0">
+      <div id="valert"></div>
+      <section class="card kpis" id="vkpis"></section>
+      <section class="card" id="vchart"></section>
+      <section class="card" id="vcurve"></section>
+      <section class="card" id="vtab" style="overflow-x:auto"></section>
+      <section class="card" id="vsteps"></section>
+      <section class="card"><h2 style="font-size:1.2rem">Asesor normativo</h2><div class="tips" id="vtips" style="margin-top:.8rem"></div></section>
+    </main>
+  </div>
+</div>
+
+<div id="report"></div>
+<script src="app.js"></script>
+</body>
+</html>
