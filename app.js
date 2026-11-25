@@ -188,7 +188,8 @@ const FIELDS_VANO = [
  {id:'vV', l:'Viento en el estado 2', u:'m/s', min:0, max:60, step:1, v:0},
  {id:'vR', l:'Densidad del aire', u:'kg/m³', min:1, max:1.4, step:.005, v:1.225},
  {id:'vC', l:'Coeficiente aerodinámico Cd', u:'', min:.5, max:2, step:.05, v:1},
- {id:'vX', l:'Carga de hielo (estado 2)', u:'N/m', min:0, max:30, step:.5, v:0}
+ {id:'vX', l:'Carga de hielo (estado 2)', u:'N/m', min:0, max:30, step:.5, v:0},
+ {id:'vS', l:'Distancia mínima al suelo (dato RETIE, 0 = no verificar)', u:'m', min:0, max:20, step:.1, v:0}
 ];
 // Ejercicios de clase: pulsar un botón carga sus datos
 const PRESETS = {
@@ -237,8 +238,17 @@ function updateVano(){
   if (a.H > 9e6 || b.H > 9e6 || a.H < 5 || b.H < 5) wn.push('La ecuación no converge a un valor físico: revise los datos.');
   if (b.fl/d.vL > 0.06) wn.push('La flecha supera el 6 % del vano: es poco habitual, revise longitud, masa o tensión.');
   if (b.hmin < 0 || a.hmin < 0) wn.push('El cable toca el suelo: aumente la altura de los apoyos o la tensión.');
-  $('valert').innerHTML = wn.map(t => `<div class="alert warn t" style="border-color:var(--warn)"><span style="color:var(--ink)">${t}</span></div>`).join('');
-  $('vchart').innerHTML = `<h2 style="font-size:1.2rem">Perfil del vano</h2>${profileSVG(d,r)}`;
+  const hm = Math.min(a.hmin, b.hmin);
+  if (d.vS > 0 && hm < d.vS) wn.push(`La altura mínima (${fmt(hm,2)} m) es menor que la distancia de seguridad de ${fmt(d.vS,1)} m.`);
+  $('valert').innerHTML = (d.vS > 0 && hm >= d.vS ? `<div class="alert ok t" style="border-color:var(--ok)"><span style="color:var(--ink)">Cumple la distancia mínima al suelo de ${fmt(d.vS,1)} m (h_min = ${fmt(hm,2)} m).</span></div>` : '') + wn.map(t => `<div class="alert warn t" style="border-color:var(--warn)"><span style="color:var(--ink)">${t}</span></div>`).join('');
+  $('vchart').innerHTML = `<h2 style="font-size:1.2rem">Perfil del vano</h2><p class="hov" id="vhov">Pase el cursor sobre el gráfico para ver x, Z y flecha.</p>${profileSVG(d,r)}`;
+  const sv = $('vchart').querySelector('svg');                // guía interactiva (ratón o dedo)
+  sv.onpointermove = e => { const q = sv.getBoundingClientRect(), px = (e.clientX-q.left)/q.width*640;
+    const x = Math.min(Math.max((px-40)*d.vL/560, 0), d.vL), z = cableY(d,b,x), g = $('vgd'), gx = 40 + x*560/d.vL;
+    g.setAttribute('x1', gx); g.setAttribute('x2', gx); g.style.display = '';
+    $('vhov').textContent = `x = ${fmt(x,1)} m | Z₂ = ${fmt(z,2)} m | flecha = ${fmt(d.vhA + d.vDh/d.vL*x - z,2)} m`; };
+  sv.onpointerleave = () => $('vgd').style.display = 'none';
+  update3D(d,r);
   $('vcurve').innerHTML = `<h2 style="font-size:1.2rem">Flecha y tensión según la temperatura</h2>${curveSVG(d,r)}`;
   const tips = [
     ['RETIE, distancias de seguridad', `Con la flecha del estado 2 el cable queda a ${fmt(b.hmin,2)} m del suelo en su punto más bajo: compárelo con la distancia de seguridad exigida para el nivel de tensión.`],
@@ -261,11 +271,13 @@ function profileSVG(d,r){
     ? `<circle class="sv-d" r="4" cx="${X(s2.x0)}" cy="${Y(s2.hmin)}"/><text class="sv-t" x="${X(s2.x0)+8}" y="${Y(s2.hmin)+16}">h_min = ${fmt(s2.hmin,2)} m</text>` : '';
   return `<svg viewBox="0 0 ${W} ${Hg}" style="width:100%;height:auto" role="img" aria-label="Perfil del vano">
     <line class="sv-g" x1="${m-10}" x2="${W-m+10}" y1="${Y(0)}" y2="${Y(0)}"/>
+    <line class="sv-g" stroke-dasharray="3 3" x1="${X(0)}" y1="${Y(hA)}" x2="${X(L)}" y2="${Y(top)}"/>
+    ${d.vS > 0 ? `<line class="sv-s" x1="${m-10}" x2="${W-m+10}" y1="${Y(d.vS)}" y2="${Y(d.vS)}"/><text class="sv-t sv-l2" x="${W-m-150}" y="${Y(d.vS)-5}">Distancia mínima ${fmt(d.vS,1)} m</text>` : ''}
     <line class="sv-p" x1="${X(0)}" x2="${X(0)}" y1="${Y(0)}" y2="${Y(hA)}"/><line class="sv-p" x1="${X(L)}" x2="${X(L)}" y1="${Y(0)}" y2="${Y(top)}"/>
     <path class="sv-1" d="${path(r.s1)}"/><path class="sv-2" d="${path(s2)}"/>${pt}
     <text class="sv-t" x="${X(0)+6}" y="${Y(hA)-6}">A · ${fmt(hA,1)} m</text><text class="sv-t" x="${X(L)-70}" y="${Y(top)-6}">B · ${fmt(top,1)} m</text>
     <text class="sv-t sv-l1" x="${m}" y="16">Estado 1 · ${d.vT1} °C · f = ${fmt(r.s1.fl,2)} m</text>
-    <text class="sv-t sv-l2" x="${m}" y="34">Estado 2 · ${d.vT2} °C · f = ${fmt(s2.fl,2)} m</text></svg>`;
+    <text class="sv-t sv-l2" x="${m}" y="34">Estado 2 · ${d.vT2} °C · f = ${fmt(s2.fl,2)} m</text><line id="vgd" class="sv-g" y1="${m-10}" y2="${Hg-m}" style="display:none"/></svg>`;
 }
 // Curvas de flecha (izquierda) y tensión H (derecha) para 0–80 °C, con el estado 1 fijo
 function curveSVG(d,r){
@@ -305,14 +317,75 @@ function printReport(){
     return `<tr><td>${f.l}</td><td>${v}</td></tr>`; }).join('');
   const who = [$('inf-n').value, $('inf-i').value, $('inf-m-on').checked ? $('inf-m').value : '', new Date().toLocaleDateString('es-CO')].filter(Boolean).map(esc).join(' · ');
   $('report').innerHTML = `<h1>${vano ? 'Informe de cálculo de vano y flecha' : 'Informe de selección de subestación'}</h1><p>${who}</p>
-    <h2 style="font-size:1.2rem">Datos de entrada</h2><table>${rows}</table>${document.querySelector(vano ? '#p-vano main' : '#p-trafo main').innerHTML}`;
+    <h2 style="font-size:1.2rem">Datos de entrada</h2><table>${rows}</table>${(c => (c.querySelector('#v3d')?.remove(), c.innerHTML))(document.querySelector(vano ? '#p-vano main' : '#p-trafo main').cloneNode(true))}`;
   window.print();
+}
+
+/* ============ 6c. VISTA 3D (three.js, sin dependencias extra) ============ */
+// Altura del cable en x para un estado s (parábola con desnivel)
+const cableY = (d,s,x) => d.vhA + d.vDh/d.vL*x + s.w/(2*s.H)*(x*x - d.vL*x);
+const VIEWS = {iso:[-.7,1.1,1.1], perfil:[0,1.5708,1], frente:[1.5708,1.5708,.8], planta:[0,.02,1.1]};  // [θ, φ, factor de distancia]
+let T3 = null;                                              // escena, cámara y estado de la órbita
+
+function init3D(){
+  const box = $('v3d-box');
+  if (T3) return draw3D();
+  if (typeof THREE === 'undefined') { box.textContent = 'No se pudo cargar three.js: revise la conexión a internet.'; return; }
+  const renderer = new THREE.WebGLRenderer({antialias:true}); renderer.setPixelRatio(window.devicePixelRatio);
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0b1622);
+  const world = new THREE.Group(); world.scale.y = 3; scene.add(world);        // exagera la vertical ×3
+  T3 = {renderer, scene, world, camera: new THREE.PerspectiveCamera(40,1,1,5000), cam: {th:0, ph:1, R:300, t:new THREE.Vector3()}};
+  const el = renderer.domElement; box.prepend(el); let drag = null;
+  el.onpointerdown = e => { drag = [e.clientX, e.clientY]; el.setPointerCapture(e.pointerId); };
+  el.onpointerup = () => drag = null;
+  el.onpointermove = e => { if (!drag) return; const c = T3.cam;                  // arrastrar = girar
+    c.th -= (e.clientX-drag[0])*.006; c.ph = Math.min(Math.max(c.ph - (e.clientY-drag[1])*.006, .02), Math.PI-.05);
+    drag = [e.clientX, e.clientY]; draw3D(); };
+  el.addEventListener('wheel', e => { e.preventDefault(); T3.cam.R *= 1 + Math.sign(e.deltaY)*.08; draw3D(); }, {passive:false});
+  document.querySelectorAll('#v3d-btns button').forEach(b => b.onclick = () => setView(b.dataset.v));
+  window.addEventListener('resize', () => T3 && draw3D());
+  setView('iso');
+}
+function setView(n){
+  const [th,ph,k] = VIEWS[n], sc = Math.max(read(FIELDS_VANO).vL, 80);
+  Object.assign(T3.cam, {th, ph, R: sc*k}); draw3D();
+}
+function draw3D(){
+  const {renderer, scene, camera, cam} = T3, box = $('v3d-box'), w = box.clientWidth, h = box.clientHeight;
+  if (!w) return;
+  renderer.setSize(w, h, false); camera.aspect = w/h; camera.updateProjectionMatrix();
+  camera.position.set(cam.t.x + cam.R*Math.sin(cam.ph)*Math.sin(cam.th), cam.t.y + cam.R*Math.cos(cam.ph), cam.t.z + cam.R*Math.sin(cam.ph)*Math.cos(cam.th));
+  camera.lookAt(cam.t); renderer.render(scene, camera);
+}
+function update3D(d,r){
+  if (!T3) return;
+  const L = d.vL, top = d.vhA + d.vDh, sc = Math.max(L,100), beta = [0, Math.atan2(r.ww, r.wp + d.vX)];
+  if (T3.dyn) T3.world.remove(T3.dyn);
+  const dyn = T3.dyn = new THREE.Group(); T3.world.add(dyn);
+  const grid = new THREE.GridHelper(sc*1.3, 26, 0x3a5a6a, 0x1e3342); grid.position.set(L/2, 0, 0); dyn.add(grid);
+  [[0,d.vhA],[L,top]].forEach(([x,hh]) => { const p = new THREE.Mesh(new THREE.CylinderGeometry(.35,.5,hh,10), new THREE.MeshBasicMaterial({color:0x9fb3c2}));
+    p.position.set(x, hh/2, 0); dyn.add(p); });
+  // Punto del cable: la flecha se reparte entre vertical y lateral según el desvío del viento β
+  const P = (s,i,x) => { const sg = s.w/(2*s.H)*(x*x - L*x);
+    return new THREE.Vector3(x, d.vhA + d.vDh/L*x + sg*Math.cos(beta[i]), -sg*Math.sin(beta[i])); };
+  [r.s1, r.s2].forEach((s,i) => { const pts = Array.from({length:61}, (_,k) => P(s,i,L*k/60));
+    dyn.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color: i ? 0xff9f40 : 0x8aa0b0}))); });
+  if (r.ww > 0) for (let k = 1; k < 7; k++){ const q = P(r.s2,1,L*k/7), len = sc*.05;    // flechas de viento
+    dyn.add(new THREE.ArrowHelper(new THREE.Vector3(0,0,1), q.clone().add(new THREE.Vector3(0,0,-len)), len, 0xffd166)); }
+  if (r.s2.x0 > 0 && r.s2.x0 < L){ const m = new THREE.Mesh(new THREE.SphereGeometry(sc*.008,12,12), new THREE.MeshBasicMaterial({color:0xff4d4d}));
+    m.position.copy(P(r.s2,1,r.s2.x0)); dyn.add(m); }                                   // punto de menor altura
+  T3.cam.t.set(L/2, (d.vhA + d.vDh/2)*1.5, 0);
+  const b = r.s2;
+  $('v3d-tel').innerHTML = [['Flecha f₂',fmt(b.fl,3)+' m'],['Tensión H₂',fmt(b.H,0)+' N'],['T_A',fmt(b.TA,0)+' N'],['T_B',fmt(b.TB,0)+' N'],
+    ['h_min',fmt(b.hmin,2)+' m'],['Desvío β',fmt(beta[1]*180/Math.PI,1)+' °']].map(([k,v]) => `${k}: <b>${v}</b>`).join('<br>');
+  draw3D();
 }
 
 /* ============ 7. ARRANQUE Y PESTAÑAS ============ */
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('.pane').forEach(p => p.hidden = p.id !== 'p-' + b.dataset.tab);
+  if (b.dataset.tab === 'vano') { init3D(); updateVano(); }
 });
 $('inf-m-on').onchange = () => $('inf-m').disabled = !$('inf-m-on').checked;  // la materia es opcional
 $('inf-b').onclick = printReport;
