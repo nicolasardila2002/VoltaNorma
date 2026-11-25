@@ -40,6 +40,10 @@
       <div id="valert"></div>
       <section class="card kpis" id="vkpis"></section>
       <section class="card" id="vchart"></section>
+      <section class="card" id="v3d"><h2 style="font-size:1.2rem">Vista 3D</h2>
+        <div class="chips" id="v3d-btns" style="margin:.6rem 0"><button type="button" data-v="iso">Isométrica</button><button type="button" data-v="perfil">Perfil</button><button type="button" data-v="frente">Frente (viento)</button><button type="button" data-v="planta">Planta</button></div>
+        <div id="v3d-box"><div id="v3d-tel"></div></div>
+        <p class="hov">Arrastre para girar y use la rueda para acercar. Escala vertical ×3. Gris: estado 1 · naranja: estado 2 · punto rojo: altura mínima.</p></section>
       <section class="card" id="vcurve"></section>
       <section class="card" id="vtab" style="overflow-x:auto"></section>
       <section class="card" id="vsteps"></section>
@@ -49,6 +53,7 @@
 </div>
 
 <div id="report"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
