@@ -68,7 +68,13 @@ td:first-child,th:first-child{text-align:left}
 .scheme svg{max-width:380px;width:100%;height:auto}
 summary{cursor:pointer;font:500 1rem Sora,sans-serif}
 .inf-grid{display:grid;gap:.6rem;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));margin:.8rem 0}
-.inf-grid label{display:grid;grid-template-columns:minmax(0,1fr);gap:.1rem;min-width:0;font-size:.92rem;font-weight:}.inf-grid .chk{align-self:end;display:flex}
+.inf-grid label{display:grid;grid-template-columns:minmax(0,1fr);gap:.2rem;min-width:0;font-size:.92rem;font-weight:500}.inf-grid .chk{align-self:end;display:flex}
 #report{display:none}
 @media print{:root:root:root{--bg:#fff;--card:#fff;--ink:#000;--mut:#333;--line:#bbb;--acc:#1c3acc;--ok:#0a6;--warn:#960;--bad:#b00}
 .wrap{display:none}#report{display:block;padding:1rem;background:#fff;color:#000}#report .card{break-inside:avoid;margin-bottom:.8rem}#report footer{display:none}}
+/* ===== Vista 3D y lectura interactiva ===== */
+.sv-s{stroke:var(--bad);stroke-dasharray:6 4;fill:none}
+.hov{font:500 .85rem Sora,sans-serif;color:var(--mut);margin:.3rem 0}
+#v3d-box{position:relative;height:380px;border-radius:10px;overflow:hidden;touch-action:none}
+#v3d-box canvas{width:100%;height:100%;display:block;cursor:grab}
+#v3d-tel{position:absolute;top:.6rem;right:.6rem;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:.5rem .7rem;font-size:.8rem;pointer-events:none}
