@@ -215,7 +215,7 @@ function calcVano(d){
   const geo = (w,H) => { const x0 = L/2 - H*Dh/(w*L), y0 = -w*x0*x0/(2*H);
     const sA = Dh/L - w*L/(2*H), sB = Dh/L + w*L/(2*H);
     return {w, H, fl: w*L*L/(8*H), x0, y0, sA, sB, TA: H*Math.sqrt(1+sA*sA), TB: H*Math.sqrt(1+sB*sB), hmin: d.vhA + y0}; };
-  return {A, D, EA, dT, wp, ww, s1: geo(w1,H1), s2: geo(w2,H2)};
+  return {A, D, EA, dT, wp, ww, geo, s1: geo(w1,H1), s2: geo(w2,H2)};
 }
 
 function updateVano(){
@@ -311,13 +311,13 @@ const SCHEMES = [
 // Informe imprimible: copia datos y resultados de la pestaña activa y abre imprimir / guardar PDF
 const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 function printReport(){
-  const vano = !$('p-vano').hidden, F = vano ? FIELDS_VANO : FIELDS;
+  const tab = ['vano','linea'].find(t => !$('p-'+t).hidden) || 'trafo', vano = tab !== 'trafo', F = tab === 'vano' ? FIELDS_VANO : tab === 'linea' ? FIELDS_LINEA : FIELDS;
   const rows = F.map(f => { const el = $(f.id);
     const v = f.chk ? (el.checked ? 'Sí' : 'No') : f.sel ? el.options[el.selectedIndex].text : el.value + ' ' + (f.u||'');
     return `<tr><td>${f.l}</td><td>${v}</td></tr>`; }).join('');
   const who = [$('inf-n').value, $('inf-i').value, $('inf-m-on').checked ? $('inf-m').value : '', new Date().toLocaleDateString('es-CO')].filter(Boolean).map(esc).join(' · ');
   $('report').innerHTML = `<h1>${vano ? 'Informe de cálculo de vano y flecha' : 'Informe de selección de subestación'}</h1><p>${who}</p>
-    <h2 style="font-size:1.2rem">Datos de entrada</h2><table>${rows}</table>${(c => (c.querySelector('#v3d')?.remove(), c.innerHTML))(document.querySelector(vano ? '#p-vano main' : '#p-trafo main').cloneNode(true))}`;
+    <h2 style="font-size:1.2rem">Datos de entrada</h2><table>${rows}</table>${(c => (c.querySelector('#v3d')?.remove(), c.innerHTML))(document.querySelector('#p-' + tab + ' main').cloneNode(true))}`;
   window.print();
 }
 
@@ -381,6 +381,86 @@ function update3D(d,r){
   draw3D();
 }
 
+/* ============ 6d. LÍNEA DE VARIOS VANOS (vano regulador) ============ */
+// Datos del conductor: se reutilizan los campos del módulo de vano (con prefijo "l"), sin geometría del vano
+const LDEF = {lm:1.2, lA:120, lD:0, lE:70, lAl:19, lT1:15, lT2:50, lH:20000, lV:20, lR:1.22, lC:1, lX:0, lS:0};
+const FIELDS_LINEA = FIELDS_VANO.filter(f => !['vL','vDh','vhA','vk'].includes(f.id))
+  .map(f => ({...f, id:'l'+f.id.slice(1), v: LDEF['l'+f.id.slice(1)], l: f.id==='vH' ? 'Tensión horizontal H₁ (estado 1)' : f.l}));
+const toV = o => ({vk:1, vhA:0, ...Object.fromEntries(Object.entries(o).map(([k,v]) => ['v'+k.slice(1), v]))});
+const POLES0 = () => [{d:300,h:25,z:0}, {d:400,h:25,z:15}, {d:0,h:25,z:5}];   // d: distancia al siguiente · h: altura · z: cota del terreno
+let POLES = POLES0();
+const nm = i => String.fromCharCode(65+i);
+
+function calcLinea(d,P){
+  const sp = P.slice(0,-1).map((p,i) => { const q = P[i+1], a = p.z+p.h, b = q.z+q.h;
+    return {i, L: Math.max(p.d,1), dh: b-a, a, z0: p.z, z1: q.z}; });
+  const Lr = Math.sqrt(sp.reduce((s,v) => s + v.L**3, 0) / sp.reduce((s,v) => s + v.L, 0));   // vano regulador
+  const reg = calcVano({...d, vL:Lr, vDh:0, vk:1}), H1 = d.vH, H2 = reg.s2.H;                // H2 común a todos los vanos
+  sp.forEach(s => { const g = calcVano({...d, vL:s.L, vDh:s.dh, vk:1}).geo; s.s1 = g(reg.s1.w, H1); s.s2 = g(reg.s2.w, H2);
+    [s.s1, s.s2].forEach(st => { let c = 1e9, lw = 1e9;                                       // altura libre mínima sobre el terreno
+      for (let k=0; k<=200; k++){ const x = s.L*k/200, e = s.a + s.dh/s.L*x + st.w/(2*st.H)*(x*x - s.L*x);
+        c = Math.min(c, e - (s.z0 + (s.z1-s.z0)*k/200)); lw = Math.min(lw, e); }
+      st.clear = c; st.low = lw; }); });
+  return {sp, Lr, H1, H2, w1: reg.s1.w, w2: reg.s2.w, ww: reg.ww};
+}
+
+function lineaSVG(r,P){
+  const W = 720, Hg = 300, m = 40, xs = [0]; r.sp.forEach(s => xs.push(xs[xs.length-1] + s.L));
+  const lo = Math.min(...P.map(p => p.z), ...r.sp.map(s => s.s2.low), ...r.sp.map(s => s.s1.low)) - 2, hi = Math.max(...P.map(p => p.z+p.h)) + 4;
+  const X = x => m + x*(W-2*m)/xs[xs.length-1], Y = y => Hg - m - (y-lo)*(Hg-2*m)/(hi-lo);
+  const cab = (s,st) => Array.from({length:41}, (_,k) => { const x = s.L*k/40, e = s.a + s.dh/s.L*x + st.w/(2*st.H)*(x*x - s.L*x);
+    return (k?'L':'M') + X(xs[s.i]+x).toFixed(1) + ' ' + Y(e).toFixed(1); }).join('');
+  return `<svg viewBox="0 0 ${W} ${Hg}" style="width:100%;height:auto" role="img" aria-label="Perfil de la línea">
+    <path class="sv-g" style="stroke:var(--ok);stroke-width:2" d="${P.map((p,i) => (i?'L':'M') + X(xs[i]).toFixed(1) + ' ' + Y(p.z).toFixed(1)).join('')}"/>
+    ${P.map((p,i) => `<line class="sv-p" x1="${X(xs[i])}" x2="${X(xs[i])}" y1="${Y(p.z)}" y2="${Y(p.z+p.h)}"/><text class="sv-t" text-anchor="middle" x="${X(xs[i])}" y="${Y(p.z+p.h)-6}">${nm(i)}</text>`).join('')}
+    ${r.sp.map(s => `<path class="sv-1" d="${cab(s,s.s1)}"/><path class="sv-2" d="${cab(s,s.s2)}"/>`).join('')}
+    <text class="sv-t sv-l1" x="${m}" y="16">Estado 1 · ${'${T1}'} °C</text><text class="sv-t sv-l2" x="${m}" y="34">Estado 2 · con viento</text></svg>`;
+}
+
+function updateLinea(){
+  const d = toV(read(FIELDS_LINEA)), r = calcLinea(d, POLES), n = POLES.length;
+  $('lkpis').innerHTML = [[fmt(r.Lr,1)+' m','Vano regulador L_r'], [fmt(r.w1,3)+' N/m','Carga w₁'], [fmt(r.w2,3)+' N/m','Carga w₂ (con viento)'], [fmt(r.H2,0)+' N','Tensión H₂ (común)']]
+    .map(([v,s]) => `<div class="kpi"><b>${v}</b><span>${s}</span></div>`).join('');
+  $('lchart').innerHTML = `<h2 style="font-size:1.2rem">Perfil de la línea</h2>${lineaSVG(r, POLES).replace('${T1}', d.vT1)}`;
+  const rows = [['Longitud L (m)',s=>s.L,1], ['Desnivel Δh (m)',s=>s.dh,1], ['Flecha f₁ (m)',s=>s.s1.fl,3], ['Flecha f₂ (m)',s=>s.s2.fl,3],
+    ['h_min₁ sobre terreno (m)',s=>s.s1.clear,2], ['h_min₂ sobre terreno (m)',s=>s.s2.clear,2], ['T_A estado 1 (N)',s=>s.s1.TA,0],
+    ['T_B estado 1 (N)',s=>s.s1.TB,0], ['T_A estado 2 (N)',s=>s.s2.TA,0], ['T_B estado 2 (N)',s=>s.s2.TB,0]];
+  $('ltab').innerHTML = `<table><tr><th></th>${r.sp.map(s => `<th>${nm(s.i)}–${nm(s.i+1)}</th>`).join('')}</tr>` +
+    rows.map(([t,f,x]) => `<tr><td>${t}</td>${r.sp.map(s => `<td>${fmt(f(s),x)}</td>`).join('')}</tr>`).join('') +
+    `</table><p class="hov">L_r = √(ΣL³ / ΣL) = ${fmt(r.Lr,1)} m · H₁ = ${fmt(r.H1,0)} N → H₂ = ${fmt(r.H2,0)} N, igual en todos los vanos (cadenas de suspensión).</p>`;
+  $('lload').innerHTML = `<h2 style="font-size:1.2rem">Carga de viento sobre cada poste</h2><table><tr><th>Poste</th><th>Vano izq. (m)</th><th>Vano der. (m)</th><th>F viento (N)</th><th>F viento (kgf)</th></tr>` +
+    POLES.map((p,i) => { const a = i ? r.sp[i-1].L : 0, b = i < n-1 ? r.sp[i].L : 0, F = r.ww*(a+b)/2;
+      return `<tr><td>${nm(i)}</td><td>${a ? fmt(a,0) : '—'}</td><td>${b ? fmt(b,0) : '—'}</td><td>${fmt(F,0)}</td><td>${fmt(F/9.81,0)}</td></tr>`; }).join('') + '</table>';
+  const wn = [], low = r.sp.filter(s => d.vS > 0 && Math.min(s.s1.clear, s.s2.clear) < d.vS).map(s => `${nm(s.i)}–${nm(s.i+1)}`);
+  if (r.sp.some(s => Math.min(s.s1.clear, s.s2.clear) < 0)) wn.push('Hay un vano donde el cable toca el terreno: aumente la altura de los postes.');
+  if (low.length) wn.push(`Distancia mínima de ${d.vS} m no cumplida en: ${low.join(', ')}.`);
+  if (r.H2 > 9e6 || r.H2 < 5) wn.push('La ecuación no converge a un valor físico: revise los datos.');
+  $('lalert').innerHTML = (d.vS > 0 && !low.length ? `<div class="alert ok t" style="border-color:var(--ok)"><span style="color:var(--ink)">Todos los vanos cumplen la distancia mínima de ${d.vS} m.</span></div>` : '') +
+    wn.map(t => `<div class="alert warn t" style="border-color:var(--warn)"><span style="color:var(--ink)">${t}</span></div>`).join('');
+  $('ltips').innerHTML = [
+    ['Vano regulador', 'En una línea con cadenas de suspensión, H se iguala entre vanos y el estado 2 se calcula con L_r, no vano por vano.'],
+    ['Postes de anclaje', 'Si un poste es de anclaje (retención), los tramos a cada lado se calculan por separado, cada uno con su propio vano regulador.'],
+    ['Poste', 'Compare la carga de viento con la carga de rotura del poste y revise la tensión mecánica máxima de cada cadena de aisladores.'],
+    ['RETIE, distancias de seguridad', 'Ingrese en «Distancia mínima al suelo» el valor del RETIE para su tensión y la página verificará cada vano.']
+  ].map(t => `<div class="tip">${t[1]}<small>${t[0]}</small></div>`).join('');
+}
+
+// Tabla editable de postes (se redibuja solo al agregar o quitar; al escribir solo recalcula)
+function drawPosts(){
+  $('lposts').innerHTML = `<h2 style="font-size:1.2rem">Postes y vanos</h2><div style="overflow-x:auto"><table><tr><th>Poste</th><th>Dist. al siguiente (m)</th><th>Altura (m)</th><th>Cota terreno (m)</th></tr>` +
+    POLES.map((p,i) => `<tr><td>${nm(i)}</td>` + ['d','h','z'].map(k => `<td><input type="number" step="any" data-i="${i}" data-k="${k}" value="${p[k]}" ${k==='d' && i===POLES.length-1 ? 'disabled' : ''}></td>`).join('') + '</tr>').join('') +
+    `</table></div><div class="chips" style="margin:.7rem 0 0"><button type="button" id="l-add">+ Agregar poste</button><button type="button" id="l-del">− Quitar poste</button></div>`;
+  $('l-add').onclick = () => { if (POLES.length < 8){ const l = POLES[POLES.length-1]; l.d = 300; POLES.push({d:0, h:l.h, z:l.z}); drawPosts(); updateLinea(); } };
+  $('l-del').onclick = () => { if (POLES.length > 2){ POLES.pop(); POLES[POLES.length-1].d = 0; drawPosts(); updateLinea(); } };
+}
+$('lposts').oninput = e => { const t = e.target; if (t.dataset.i === undefined) return;
+  POLES[t.dataset.i][t.dataset.k] = parseFloat(t.value) || 0; t.setAttribute('value', t.value); updateLinea(); };
+function resetLinea(){
+  POLES = POLES0();
+  for (const [id,v] of Object.entries(LDEF)){ $(id).value = v; const q = document.querySelector(`[data-pair="${id}"]`); if (q) q.value = v; }
+  drawPosts(); updateLinea();
+}
+
 /* ============ 7. ARRANQUE Y PESTAÑAS ============ */
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
@@ -391,6 +471,8 @@ $('inf-m-on').onchange = () => $('inf-m').disabled = !$('inf-m-on').checked;  //
 $('inf-b').onclick = printReport;
 buildForm(FIELDS, 'form', update);       update();
 buildForm(FIELDS_VANO, 'vform', updateVano); updateVano();
+$('lpre').innerHTML = '<button type="button">Ejercicio de la pizarra (3 postes)</button>'; $('lpre').firstChild.onclick = resetLinea;
+drawPosts(); buildForm(FIELDS_LINEA, 'lform', updateLinea); updateLinea();
 // Botones de ejercicios: escriben los datos en el formulario y recalculan
 $('vpre').innerHTML = Object.keys(PRESETS).map(n => `<button type="button">${n}</button>`).join('');
 document.querySelectorAll('#vpre button').forEach(b => b.onclick = () => {
