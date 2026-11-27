@@ -311,7 +311,7 @@ const SCHEMES = [
 // Informe imprimible: copia datos y resultados de la pestaña activa y abre imprimir / guardar PDF
 const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 function printReport(){
-  const tab = ['vano','linea'].find(t => !$('p-'+t).hidden) || 'trafo', vano = tab !== 'trafo', F = tab === 'vano' ? FIELDS_VANO : tab === 'linea' ? FIELDS_LINEA : FIELDS;
+  const tab = ['vano','linea','epm'].find(t => !$('p-'+t).hidden) || 'trafo', vano = tab !== 'trafo', F = {vano:FIELDS_VANO, linea:FIELDS_LINEA, epm:FIELDS_EPM}[tab] || FIELDS;
   const rows = F.map(f => { const el = $(f.id);
     const v = f.chk ? (el.checked ? 'Sí' : 'No') : f.sel ? el.options[el.selectedIndex].text : el.value + ' ' + (f.u||'');
     return `<tr><td>${f.l}</td><td>${v}</td></tr>`; }).join('');
@@ -461,6 +461,109 @@ function resetLinea(){
   drawPosts(); updateLinea();
 }
 
+/* ============ 6e. DISEÑO EPM: HIPÓTESIS A/B/C, FLECHAS Y CARGAS EN POSTES ============ */
+// Catálogo: [masa kg/m, diámetro mm, área mm², E GPa, α 1/°C, UTS N, límite A, límite B, límite C]
+const CONDUCTORES = {
+ 'ACSR 2 AWG (SPARROW)':[.1359,8.01,39.22,79,19.1e-6,12700,.5,.23,.14], 'ACSR 1/0 AWG (RAVEN)':[.2165,10.11,62.38,79,19.1e-6,19500,.5,.225,.14],
+ 'ACSR 2/0 AWG (QUAIL)':[.2726,11.35,78.65,79,19.1e-6,23600,.5,.225,.14], 'ACSR 3/0 AWG (PIGEON)':[.3439,12.75,99.23,79,19.1e-6,29400,.5,.225,.14],
+ 'ACSR 4/0 AWG (PENGUIN)':[.4335,14.31,125.1,79,19.1e-6,37100,.5,.22,.135], 'ACSR 266.8 KCMIL (WAXWING)':[.4313,15.47,142.6,63,21.2e-6,30600,.5,.33,.175],
+ 'ACSR 336.4 KCMIL (LINNET)':[.6883,18.29,198.3,74,18.9e-6,63400,.5,.19,.12], 'AAAC 1/0 AWG (AZUSA)':[.146,9.36,53.5,60,23e-6,15900,.5,.225,.13],
+ 'AAAC 2/0 AWG (ANAHEIM)':[.184,10.5,67.4,60,23e-6,20000,.5,.225,.13], 'AAAC 4/0 AWG (ALLIANCE)':[.293,13.26,107.2,60,23e-6,31800,.5,.22,.125]
+};
+const FIELDS_EPM = [
+ {id:'eCat', l:'Conductor de catálogo (rellena los datos)', sel:[['','Personalizado'], ...Object.keys(CONDUCTORES).map(k => [k,k])]},
+ {id:'eM', l:'Masa', u:'kg/m', min:.05, max:3, step:.001, v:.2165},   {id:'eD', l:'Diámetro', u:'mm', min:5, max:40, step:.01, v:10.11},
+ {id:'eAr',l:'Área', u:'mm²', min:20, max:600, step:.1, v:62.38},    {id:'eE', l:'Módulo de elasticidad', u:'GPa', min:30, max:200, step:.5, v:79},
+ {id:'eAl',l:'Coeficiente térmico', u:'×10⁻⁶ /°C', min:10, max:30, step:.1, v:19.1}, {id:'eU', l:'Carga de rotura UTS', u:'N', min:5000, max:100000, step:100, v:19500},
+ {id:'eLA',l:'Límite hipótesis A (fracción UTS)', u:'', min:.05, max:.7, step:.005, v:.5}, {id:'eLB',l:'Límite hipótesis B', u:'', min:.05, max:.7, step:.005, v:.225},
+ {id:'eLC',l:'Límite hipótesis C (EDS)', u:'', min:.05, max:.7, step:.005, v:.14}, {id:'eN', l:'Conductores por estructura', u:'', min:1, max:6, step:1, v:3},
+ {id:'eHm',l:'Método de viento', sel:[['epm','EPM GM-012: Q·V²'],['rho','½·ρ·V²·Cd']]}, {id:'eV', l:'Velocidad del viento', u:'m/s', min:5, max:60, step:1, v:26},
+ {id:'eR', l:'Densidad del aire (método ρ)', u:'kg/m³', min:1, max:1.4, step:.005, v:1.225}, {id:'eCd',l:'Coeficiente Cd (método ρ)', u:'', min:.5, max:2, step:.05, v:1},
+ {id:'eAlt',l:'Altitud', u:'msnm', min:0, max:4000, step:50, v:1500}, {id:'eTm', l:'Temperatura mínima (B)', u:'°C', min:-10, max:30, step:1, v:10},
+ {id:'eTc',l:'Temperatura con viento (A)', u:'°C', min:-10, max:40, step:1, v:10}, {id:'eTe', l:'Temperatura EDS (C)', u:'°C', min:0, max:40, step:1, v:20},
+ {id:'eTx',l:'Temperatura máxima del conductor', u:'°C', min:20, max:90, step:1, v:50}, {id:'eS', l:'Distancia mínima al suelo (dato RETIE)', u:'m', min:0, max:20, step:.1, v:5.6},
+ {id:'eFS',l:'Factor de seguridad del poste', u:'', min:1, max:5, step:.1, v:2.5}, {id:'eAm', l:'Distancia punta–amarre', u:'m', min:0, max:1, step:.05, v:.3},
+ {id:'eDp',l:'Diámetro del poste en la punta', u:'m', min:.08, max:.3, step:.01, v:.14}, {id:'eDb', l:'Diámetro del poste en la base', u:'m', min:.15, max:.6, step:.01, v:.33}
+];
+const EPCOLS = [['d','Vano al siguiente (m)'], ['z','Cota terreno (m)'], ['h','Longitud poste (m)'], ['r','Rotura NTC 1329 (kgf)'], ['g','Deflexión (°)']];
+const EP = [{d:80,z:0,h:12,r:1050,g:0}, {d:95,z:0,h:12,r:750,g:0}, {d:90,z:0,h:12,r:750,g:10}, {d:85,z:0,h:12,r:750,g:0}, {d:0,z:0,h:12,r:1050,g:0}];
+
+// Ecuación de cambio de estado (H desconocida del estado 2) por bisección
+function cambioEstado(H1,w1,t1,w2,t2,L,EA,al){
+  const k = (w,H) => w*w*L*L/(24*H*H), f = H => k(w2,H) - k(w1,H1) - al*(t2-t1) - (H-H1)/EA;
+  let lo = 1, hi = 1e7; for (let i=0; i<200; i++){ const m = (lo+hi)/2; f(m) > 0 ? lo = m : hi = m; } return (lo+hi)/2;
+}
+function calcEPM(d,P){
+  const G = 9.81, w = d.eM*G, UTS = d.eU, EA = d.eE*1e9*d.eAr*1e-6, al = d.eAl*1e-6, n = P.length;
+  const PV = d.eHm === 'epm' ? (.603 - .0514*d.eAlt/1000)*d.eV**2 : .5*d.eR*d.eV**2*d.eCd, pv = PV*d.eD/1000;   // presión y carga de viento
+  const pt = Math.hypot(w,pv), beta = Math.atan2(pv,w)*180/Math.PI, V = P.slice(0,-1).map(p => p.d);
+  const ar = Math.sqrt(V.reduce((s,a) => s + a**3, 0) / V.reduce((s,a) => s + a, 0));                        // vano regulador
+  const hip = {A:{t:d.eTc, w:pt, lim:d.eLA}, B:{t:d.eTm, w, lim:d.eLB}, C:{t:d.eTe, w, lim:d.eLC}};
+  let gob = null, mej = null; const bases = {};
+  for (const [kb,b] of Object.entries(hip)){                       // cada hipótesis como base: se llevan las otras por cambio de estado
+    const res = {}; let ok = true;
+    for (const [k,h] of Object.entries(hip)){ res[k] = k === kb ? b.lim*UTS : cambioEstado(b.lim*UTS, b.w, b.t, h.w, h.t, ar, EA, al); if (res[k]/UTS > h.lim + 1e-9) ok = false; }
+    bases[kb] = {res, ok}; if (ok && (!mej || res.C > mej.C)){ gob = kb; mej = res; }
+  }
+  const out = {w, pv, pt, PV, beta, ar, hip, bases, gob};
+  if (!gob) return out;
+  const HD = cambioEstado(mej[gob], hip[gob].w, hip[gob].t, w, d.eTx, ar, EA, al), TA = mej.A;
+  const alt = P.map(p => p.h - (.1*p.h + .6) - d.eAm);                                                     // altura de amarre sobre el terreno
+  out.mej = mej; out.HD = HD;
+  out.spans = V.map((a,i) => { const yA = P[i].z + alt[i], yB = P[i+1].z + alt[i+1]; let dm = 1e9;
+    for (let j=0; j<=200; j++){ const x = a*j/200; dm = Math.min(dm, yA + (yB-yA)*x/a - w*x*(a-x)/(2*HD) - (P[i].z + (P[i+1].z-P[i].z)*x/a)); }
+    const fA = pt*a*a/(8*mej.A);
+    return {a, fA, fAv: fA*Math.cos(beta*Math.PI/180), fB: w*a*a/(8*mej.B), fC: w*a*a/(8*mej.C), fD: w*a*a/(8*HD), dm, ok: dm >= d.eS}; });
+  out.poles = P.map((p,i) => { const aL = i ? V[i-1] : 0, aR = i < n-1 ? V[i] : 0, VV = (aL+aR)/2, hi = p.z + alt[i], term = i === 0 || i === n-1;
+    let VP = VV; if (i) VP += TA/pt*(hi - P[i-1].z - alt[i-1])/aL; if (i < n-1) VP += TA/pt*(hi - P[i+1].z - alt[i+1])/aR;
+    const Fv = d.eN*w*VP, Fw = d.eN*pv*VV, Fa = term ? 0 : d.eN*2*TA*Math.sin(p.g*Math.PI/360), Fl = term ? d.eN*TA : 0;
+    const hl = p.h - (.1*p.h + .6), Fp = PV*hl*(d.eDp+d.eDb)/2, M = Math.hypot(Fw+Fa, Fl)*alt[i] + Fp*hl*.45, Feq = M/(hl-.2), Ct = p.r*G/d.eFS;
+    return {VV, VP, Fv, Fw, Fa, Fl, Fp, Feq, Ct, ok: Feq <= Ct, Tret: M/alt[i]/Math.cos(Math.PI/4)}; });
+  return out;
+}
+
+const setVal = (id,v) => { $(id).value = v; const q = document.querySelector(`[data-pair="${id}"]`); if (q) q.value = v; };
+function fillCat(){                                                  // al elegir un conductor se cargan sus datos de catálogo
+  const c = CONDUCTORES[$('eCat').value]; if (!c) return;
+  ['eM','eD','eAr','eE','eAl','eU','eLA','eLB','eLC'].forEach((id,i) => setVal(id, id === 'eAl' ? +(c[i]*1e6).toFixed(2) : c[i])); updateEPM();
+}
+// Tabla editable de postes reutilizable: filas en un arreglo, botones para agregar/quitar
+function makeTable(box, rows, cols, fresh, onChange){
+  const draw = () => { $(box).innerHTML = `<h2 style="font-size:1.2rem">Postes y vanos</h2><div style="overflow-x:auto"><table><tr><th>Poste</th>${cols.map(c => `<th>${c[1]}</th>`).join('')}</tr>` +
+    rows.map((r,i) => `<tr><td>P${i+1}</td>${cols.map(c => `<td><input type="number" step="any" data-i="${i}" data-k="${c[0]}" value="${r[c[0]]}" ${c[0]==='d' && i===rows.length-1 ? 'disabled' : ''}></td>`).join('')}</tr>`).join('') +
+    `</table></div><div class="chips" style="margin:.7rem 0 0"><button type="button" data-a="+">+ Agregar poste</button><button type="button" data-a="-">− Quitar poste</button></div>`; };
+  $(box).oninput = e => { const t = e.target; if (t.dataset.i === undefined) return; rows[t.dataset.i][t.dataset.k] = parseFloat(t.value) || 0; t.setAttribute('value', t.value); onChange(); };
+  $(box).onclick = e => { const a = e.target.dataset.a; if (!a) return;
+    if (a === '+' && rows.length < 10){ rows[rows.length-1].d = 85; rows.push(fresh()); } if (a === '-' && rows.length > 2){ rows.pop(); rows[rows.length-1].d = 0; }
+    draw(); onChange(); };
+  draw();
+}
+
+function updateEPM(){
+  const d = read(FIELDS_EPM), r = calcEPM(d, EP), al = (s,t) => `<div class="alert ${s} t" style="border-color:var(--${s})"><span style="color:var(--ink)">${t}</span></div>`;
+  const tbl = (head, rows) => `<table><tr>${head.map(x => `<th>${x}</th>`).join('')}</tr>${rows.map(c => `<tr>${c.map(x => `<td>${x}</td>`).join('')}</tr>`).join('')}</table>`;
+  const st = ok => `<span class="${ok?'ok':'bad'} t"><b>${ok ? 'OK' : 'FALLA'}</b></span>`, p = (H,L) => fmt(H/L*100,1) + ' %';
+  if (!r.gob){ $('ealert').innerHTML = al('bad', 'Ninguna hipótesis cumple los límites: revise el conductor, el vano o las temperaturas.'); ['ekpis','eh','et','es','ep'].forEach(i => $(i).innerHTML = ''); return; }
+  const U = d.eU, H = r.hip, M = r.mej, bad = r.spans.filter(s => !s.ok).length, ret = r.poles.filter(q => !q.ok).length;
+  $('ealert').innerHTML = al(bad || ret ? 'warn' : 'ok', bad || ret ? `${bad} vano(s) no cumplen la distancia al suelo y ${ret} poste(s) requieren retenida.` : 'Todos los vanos cumplen la distancia al suelo y todos los postes resisten.');
+  $('ekpis').innerHTML = [[fmt(r.ar,1)+' m','Vano regulador'], [fmt(r.pt,3)+' N/m','Carga resultante · β = '+fmt(r.beta,1)+'°'], ['Hipótesis '+r.gob,'Gobernante'], [fmt(r.HD,0)+' N','Tensión a '+d.eTx+' °C']]
+    .map(([v,s]) => `<div class="kpi"><b>${v}</b><span>${s}</span></div>`).join('');
+  $('eh').innerHTML = `<h2 style="font-size:1.2rem">Hipótesis de tensión (base → resultado en A, B y C)</h2>` + tbl(['Base','% UTS en A','% UTS en B','% UTS en C','Resultado'],
+    Object.entries(r.bases).map(([k,b]) => [`${k===r.gob?'<b>':''}${k} (${fmt(H[k].lim*100,1)} %)${k===r.gob?' · gobernante</b>':''}`, p(b.res.A,U), p(b.res.B,U), p(b.res.C,U), st(b.ok)])) +
+    `<p class="hov">La gobernante es la que cumple los tres límites y deja la mayor tensión en EDS (C).</p>`;
+  $('et').innerHTML = `<h2 style="font-size:1.2rem">Tensiones en el vano regulador</h2>` + tbl(['Hipótesis','t (°C)','w (N/m)','H (N)','% UTS','Límite','Estado'],
+    [...Object.entries(H).map(([k,h]) => [k, h.t, fmt(h.w,3), fmt(M[k],0), p(M[k],U), p(h.lim,1), st(M[k]/U <= h.lim + 1e-9 && M[k]/U <= .6)]), ['Flecha máx.', d.eTx, fmt(r.w,3), fmt(r.HD,0), p(r.HD,U), '—', '—']]);
+  $('es').innerHTML = `<h2 style="font-size:1.2rem">Flechas y distancia al suelo</h2><div style="overflow-x:auto">` + tbl(['Vano','a (m)','f_A (m)','f_A vert. (m)','f_B (m)','f_C (m)','f_máx (m)','Dist. suelo (m)','Estado'],
+    r.spans.map((s,i) => [`P${i+1}–P${i+2}`, fmt(s.a,1), fmt(s.fA,3), fmt(s.fAv,3), fmt(s.fB,3), fmt(s.fC,3), fmt(s.fD,3), fmt(s.dm,2), st(s.ok)])) + '</div>';
+  $('ep').innerHTML = `<h2 style="font-size:1.2rem">Cargas en los postes (hipótesis A)</h2><div style="overflow-x:auto">` + tbl(['Poste','VV (m)','VP (m)','Vertical (N)','Viento (N)','Ángulo (N)','Long. (N)','Viento poste (N)','F eq. punta (N)','C. trabajo (N)','Estado'],
+    r.poles.map((q,i) => [`P${i+1}`, fmt(q.VV,1), fmt(q.VP,1), fmt(q.Fv,0), fmt(q.Fw,0), fmt(q.Fa,0), fmt(q.Fl,0), fmt(q.Fp,0), fmt(q.Feq,0), fmt(q.Ct,0), q.ok ? st(true) : `<span class="bad t"><b>RETENIDA</b> ≈ ${fmt(q.Tret,0)} N</span>`])) +
+    `</div><p class="hov">Retenida a 45°: cable con carga de rotura de al menos el doble de la tensión indicada.</p>`;
+  $('etips').innerHTML = [['Hipótesis '+r.gob, `Define la tensión de diseño: H = ${fmt(M.A,0)} N en A, ${fmt(M.B,0)} N en B y ${fmt(M.C,0)} N en EDS.`],
+    ['Viento', d.eHm === 'epm' ? 'Se usa Q·V² con Q = 0,603 − 0,0514·(altitud/1000), como la guía EPM GM-012. Cambie el método si el ejercicio da ρ y Cd.' : 'Se usa ½·ρ·V²·Cd con los datos del ejercicio.'],
+    ['Postes', ret ? 'Los postes marcados exceden su carga de trabajo: suba la rotura del poste, acorte vanos o instale retenida.' : 'Los postes resisten con el factor de seguridad elegido; revise también las cimentaciones.']]
+    .map(t => `<div class="tip">${t[1]}<small>${t[0]}</small></div>`).join('');
+}
+
 /* ============ 7. ARRANQUE Y PESTAÑAS ============ */
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
@@ -473,6 +576,10 @@ buildForm(FIELDS, 'form', update);       update();
 buildForm(FIELDS_VANO, 'vform', updateVano); updateVano();
 $('lpre').innerHTML = '<button type="button">Ejercicio de la pizarra (3 postes)</button>'; $('lpre').firstChild.onclick = resetLinea;
 drawPosts(); buildForm(FIELDS_LINEA, 'lform', updateLinea); updateLinea();
+buildForm(FIELDS_EPM, 'eform', updateEPM);
+makeTable('eposts', EP, EPCOLS, () => ({d:0, z:0, h:12, r:750, g:0}), updateEPM);
+$('eform').addEventListener('change', e => { if (e.target.id === 'eCat') fillCat(); });
+$('eCat').value = 'ACSR 1/0 AWG (RAVEN)'; fillCat();
 // Botones de ejercicios: escriben los datos en el formulario y recalculan
 $('vpre').innerHTML = Object.keys(PRESETS).map(n => `<button type="button">${n}</button>`).join('');
 document.querySelectorAll('#vpre button').forEach(b => b.onclick = () => {
