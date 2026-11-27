@@ -12,7 +12,7 @@
   <header>
     <h1>VoltaNorma</h1>
     <p>Dos herramientas: un selector de subestaciones según las normas ESSA, el RETIE y la NTC 2050, y el cálculo de flecha y tensión de un conductor.</p>
-    <nav class="tabs"><button data-tab="trafo" class="on">Transformadores</button><button data-tab="vano">Vano y flecha</button><button data-tab="linea">Varios vanos</button></nav>
+    <nav class="tabs"><button data-tab="trafo" class="on">Transformadores</button><button data-tab="vano">Vano y flecha</button><button data-tab="linea">Varios vanos</button><button data-tab="epm">Diseño EPM</button></nav>
     <details class="card" id="inf" style="margin-top:.9rem"><summary>Informe imprimible</summary>
       <div class="inf-grid">
         <label>Nombre<input type="text" id="inf-n" autocomplete="name"></label>
@@ -60,6 +60,19 @@
       <section class="card" id="ltab" style="overflow-x:auto"></section>
       <section class="card" id="lload" style="overflow-x:auto"></section>
       <section class="card"><h2 style="font-size:1.2rem">Asesor normativo</h2><div class="tips" id="ltips" style="margin-top:.8rem"></div></section>
+    </main>
+  </div>
+  <div class="pane" id="p-epm" hidden>
+    <aside class="card"><form id="eform" onsubmit="return false"></form></aside>
+    <main style="display:grid;gap:1.2rem;min-width:0">
+      <section class="card" id="eposts"></section>
+      <div id="ealert"></div>
+      <section class="card kpis" id="ekpis"></section>
+      <section class="card" id="eh" style="overflow-x:auto"></section>
+      <section class="card" id="et" style="overflow-x:auto"></section>
+      <section class="card" id="es"></section>
+      <section class="card" id="ep"></section>
+      <section class="card"><h2 style="font-size:1.2rem">Asesor normativo</h2><div class="tips" id="etips" style="margin-top:.8rem"></div></section>
     </main>
   </div>
 </div>
